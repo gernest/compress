@@ -89,3 +89,31 @@ fn offsetCode(off: u32) u32 {
     }
     return offset_codes[@intCast(usize, off >> 14)] + 28;
 }
+
+pub fn DivResult(valueType: type) type {
+    return struct.{
+        /// quotient
+        quo: valueType,
+
+        /// reamainder
+        rem: valueType,
+    };
+}
+
+pub const Div32Result = DivResult(u32);
+
+// div32 returns Div32Result with the quotient and remainder of (hi, lo) divided
+// by y:  quo = (hi, lo)/y, rem = (hi, lo)%y with the dividend bits' upper
+// half in parameter hi and the lower half in parameter lo.
+// hi must be < y otherwise the behavior is undefined (the quotient
+// won't fit into quo).
+pub fn div32(hi: u32, lo: u32, y: u32) Div32Result {}
+
+pub const Div64Result = DivResult(u64);
+
+// div64 returns Div64Result with the quotient and remainder of (hi, lo) divided
+// by y:  quo = (hi, lo)/y, rem = (hi, lo)%y with the dividend bits' upper
+// half in parameter hi and the lower half in parameter lo.
+// hi must be < y otherwise the behavior is undefined (the quotient
+// won't fit into quo).
+pub fn div64(hi: u64, lo: u64, y: u64) Div64Result {}
