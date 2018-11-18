@@ -79,7 +79,7 @@ const len8tab = []u8{
 };
 
 pub fn DivResult(valueType: type) type {
-    return struct{
+    return struct {
         /// quotient
         quo: valueType,
 
