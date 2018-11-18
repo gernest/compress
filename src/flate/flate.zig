@@ -1,4 +1,5 @@
 const std = @import("std");
+const bits = @import("../bits/index.zig");
 
 // 2 bits:   type   0 = literal  1=EOF  2=Match   3=Unused
 // 8 bits:   xlength = length - MIN_MATCH_LENGTH
@@ -199,6 +200,6 @@ fn generateFixedLiteralEncoding(h: []hcode) void {
     }
 }
 
-fn reverseBits(n: u15, length: usize) u16 {
-    //TODO: implement this
+fn reverseBits(n: u15, length: u16) u16 {
+    return bits.reverseU16(n << (16 - size));
 }
