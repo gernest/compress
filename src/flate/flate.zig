@@ -9,6 +9,14 @@ const type_mask = 3 << 30;
 const literal_type = 0 << 30;
 const match_type = 1 << 30;
 
+const max_code_len: usize = 16; // max length of Huffman code
+// The next three numbers come from the RFC section 3.2.7, with the
+// additional proviso in section 3.2.5 which implies that distance codes
+// 30 and 31 should never occur in compressed data.
+const max_num_lit: usize = 286;
+const max_num_dist: usize = 30;
+const num_codes: usize = 19; // number of codes in Huffman meta-code
+
 // The length code for length X (MIN_MATCH_LENGTH <= X <= MAX_MATCH_LENGTH)
 // is lengthCodes[length - MIN_MATCH_LENGTH]
 const length_codes = []u32{
@@ -90,4 +98,107 @@ fn offsetCode(off: u32) u32 {
         return offset_codes[@intCast(usize, off >> 7)];
     }
     return offset_codes[@intCast(usize, off >> 14)] + 28;
+}
+
+const hcode = struct {
+    code: u16,
+    length: u16,
+    fn set(self: *hcode, code: u16, length: u16) void {
+        self.code = code;
+        self.length = length;
+    }
+};
+
+/// A levelInfo describes the state of the constructed tree for a given depth.
+const levelInfo = struct {
+    /// Our level.  for better printing
+    level: i32,
+
+    /// The frequency of the last node at this level
+    last_freq: i32,
+
+    /// The frequency of the next character to add to this level
+    next_char_freq: i32,
+
+    /// The frequency of the next pair (from level below) to add to this level.
+    /// Only valid if the "needed" value of the next lower level is 0.
+    next_pair_freq: i32,
+
+    /// The number of chains remaining to generate for this level before moving
+    /// up to the next level
+    needed: i32,
+};
+
+const literalNode = struct {
+    literal: u16,
+    freq: u16,
+};
+
+const CodeList = std.ArrayList(hcode);
+const LiteralNodeList = std.ArrayList(literalNode);
+
+const huffmanEncoder = struct {
+    condes: CodeList,
+    freq_cache: ?LiteralNodeList,
+    bit_cache: []i32,
+    lns: ?LiteralNodeList,
+    lfs: ?LiteralNodeList,
+    allocator: *std.mem.Allocator,
+
+    fn init(a: *std.mem.Allocator, size: usize) !huffmanEncoder {
+        const bit_cache: [17]i32 = undefined;
+        var codes = CodeList.init(a);
+        try codes.ensureCapacity(size);
+        return huffmanEncoder{
+            .codes = codes,
+            .freq_cache = null,
+            .bit_cache = bit_cache[0..],
+            .lns = null,
+            .lfs = null,
+            .allocator = a,
+        };
+    }
+};
+
+const max_u16 = std.math.maxInt(u16);
+
+fn maxNode() literalNode {
+    return literalNode{
+        .literal = u16(max_u16),
+        .freq = u16(max_u16),
+    };
+}
+
+fn generateFixedLiteralEncoding(h: []hcode) void {
+    std.debug.assert(h.len == max_num_lit);
+    var ch: u16 = 0;
+    while (ch < max_num_lit) : (ch += 1) {
+        var bits: u16 = 0;
+        var size: u16 = 0;
+        if (ch < 144) {
+            // size 8, 000110000  .. 10111111
+            bits = ch + 48;
+            size = 8;
+        } else if (ch < 256) {
+            // size 9, 110010000 .. 111111111
+            bits = ch + 400 - 144;
+            size = 9;
+        } else if (ch < 280) {
+            // size 7, 0000000 .. 0010111
+            bits = ch - 256;
+            size = 7;
+        } else {
+            // size 8, 11000000 .. 11000111
+            bits = ch + 192 - 280;
+            size = 8;
+        }
+        h[ch] = hcode{
+            .code = reverseBits(bits, size),
+            .length = size,
+        };
+    }
+}
+
+fn reverseBits(n: u15, length: usize) u16 {
+    //TODO: implement this
 }
