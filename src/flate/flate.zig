@@ -59,7 +59,7 @@ const offset_codes = []u32{
     15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15,
 };
 
-const token = struct{
+const token = struct {
     value: u32,
     fn literalToken(value: u32) token {
         return token{ .value = literal_type + value };
