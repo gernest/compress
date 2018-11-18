@@ -1,3 +1,5 @@
+const std = @import("std");
+
 // 2 bits:   type   0 = literal  1=EOF  2=Match   3=Unused
 // 8 bits:   xlength = length - MIN_MATCH_LENGTH
 // 22 bits   xoffset = offset - MIN_OFFSET_SIZE, or literal
@@ -9,7 +11,7 @@ const match_type = 1 << 30;
 
 // The length code for length X (MIN_MATCH_LENGTH <= X <= MAX_MATCH_LENGTH)
 // is lengthCodes[length - MIN_MATCH_LENGTH]
-const length_codes = []u32.{
+const length_codes = []u32{
     0, 1, 2, 3, 4, 5, 6, 7, 8, 8,
     9, 9, 10, 10, 11, 11, 12, 12, 12, 12,
     13, 13, 13, 13, 14, 14, 14, 14, 15, 15,
@@ -38,7 +40,7 @@ const length_codes = []u32.{
     27, 27, 27, 27, 27, 28,
 };
 
-const offset_codes = []u32.{
+const offset_codes = []u32{
     0, 1, 2, 3, 4, 4, 5, 5, 6, 6, 6, 6, 7, 7, 7, 7,
     8, 8, 8, 8, 8, 8, 8, 8, 9, 9, 9, 9, 9, 9, 9, 9,
     10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10,
@@ -57,13 +59,13 @@ const offset_codes = []u32.{
     15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15,
 };
 
-const token = struct.{
+const token = struct{
     value: u32,
     fn literalToken(value: u32) token {
-        return token.{ .value = literal_type + value };
+        return token{ .value = literal_type + value };
     }
     fn matchToken(xlength: u32, xoffset: u32) token {
-        return token.{ .value = match_type + xlength << length_shift + xoffset };
+        return token{ .value = match_type + xlength << length_shift + xoffset };
     }
     fn literal(self: token) u32 {
         return self.value - literal_type;
