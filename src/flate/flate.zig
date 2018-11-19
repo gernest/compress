@@ -18,6 +18,8 @@ const max_num_lit: usize = 286;
 const max_num_dist: usize = 30;
 const num_codes: usize = 19; // number of codes in Huffman meta-code
 
+const max_bits_limit: usize = 16;
+
 // The length code for length X (MIN_MATCH_LENGTH <= X <= MAX_MATCH_LENGTH)
 // is lengthCodes[length - MIN_MATCH_LENGTH]
 const length_codes = []u32{
@@ -158,6 +160,18 @@ const huffmanEncoder = struct {
             .lfs = null,
             .allocator = a,
         };
+    }
+
+    fn bitLength(h: []hcode, freq: []i32) isize {
+        var total: isize = 0;
+        for (freq) |f, i| {
+            if (f != 0) {
+                const x = @intCast(isize, h[i].length);
+                const y = @intCast(isize, f);
+                total += (y * x);
+            }
+        }
+        return total;
     }
 };
 
