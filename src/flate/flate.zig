@@ -140,6 +140,33 @@ const literalNode = struct {
 const CodeList = std.ArrayList(hcode);
 const LiteralNodeList = std.ArrayList(literalNode);
 
+fn sortLiteralNodeList(ls: *LiteralNodeList) void {
+    var list = ls.toSlice();
+    std.sort.insertionSort(literalNode, list, lessLiteralNodeListFn);
+}
+
+fn lessLiteralNodeListFn(x: literalNode, y: literalNode) bool {
+    return x.literal < y.literal;
+}
+
+test "sort LiteralNodeList" {
+    var ls = &LiteralNodeList.init(std.debug.global_allocator);
+    defer ls.deinit();
+    var n: usize = 5;
+    while (n > 0) : (n -= 1) {
+        try ls.append(literalNode{
+            .literal = @intCast(u16, n),
+            .freq = 0,
+        });
+    }
+    sortLiteralNodeList(ls);
+    for (ls.toSlice()) |value, idx| {
+        if (idx + 1 != @intCast(usize, value.literal)) {
+            std.debug.warn("expected {} got {}\n", idx + 1, value.literal);
+        }
+    }
+}
+
 const huffmanEncoder = struct {
     condes: CodeList,
     freq_cache: ?LiteralNodeList,
