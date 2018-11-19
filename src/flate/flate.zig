@@ -203,3 +203,24 @@ fn generateFixedLiteralEncoding(h: []hcode) void {
 fn reverseBits(n: u15, length: u16) u16 {
     return bits.reverseU16(n << (16 - size));
 }
+
+fn generateFixedOffsetEncoding(h: []hcode) void {
+    for (h) |_, idx| {
+        h[idx] = hcode{
+            .code = reverseBits(u16(idx), 5),
+            .length = 5,
+        };
+    }
+}
+
+const fixed_literal_encoding = blk: {
+    var h: [max_num_lit]hcode = undefined;
+    generateFixedLiteralEncoding(h[0..]);
+    break :blk h[0..];
+};
+
+const fixed_offset_encoding = blk: {
+    var h: [30]hcode = undefined;
+    generateFixedOffsetEncoding(h[0..]);
+    break :blk h[0..];
+};
