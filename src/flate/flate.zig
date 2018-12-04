@@ -176,6 +176,8 @@ const HuffmanEncoder = struct {
     allocator: *std.mem.Allocator,
     arena: std.heap.ArenaAllocator,
 
+    const max_bits_limit: i32 = 16;
+
     // initalizes a new HuffmanEncoder instance.
     // call deinit when done to free resources.
     fn init(a: *std.mem.Allocator, size: usize) !HuffmanEncoder {
@@ -203,6 +205,24 @@ const HuffmanEncoder = struct {
             }
         }
         return total;
+    }
+
+    // Return the number of literals assigned to each bit size in the Huffman encoding
+    //
+    // This method is only called when list.length >= 3
+    // The cases of 0, 1, and 2 literals are handled by special case code.
+    //
+    // list  An array of the literals with non-zero frequencies
+    //             and their associated frequencies. The array is in order of increasing
+    //             frequency, and has as its last element a special element with frequency
+    //             MaxInt32
+    // max_bits     The maximum number of bits that should be used to encode any literal.
+    //             Must be less than 16.
+    // return      An integer array in which array[i] indicates the number of literals
+    //             that should be encoded in i bits.
+    fn bitCounts(h: *HuffmanEncoder, list: LiteralNodeList, max_bits: i32) []i32 {
+        std.debug.assert(max_bits < max_bits_limit);
+        const n = list.len;
     }
 };
 
