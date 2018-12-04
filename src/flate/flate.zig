@@ -167,7 +167,7 @@ test "sort LiteralNodeList" {
     }
 }
 
-const huffmanEncoder = struct {
+const HuffmanEncoder = struct {
     condes: CodeList,
     freq_cache: ?LiteralNodeList,
     bit_cache: []i32,
@@ -176,8 +176,10 @@ const huffmanEncoder = struct {
     allocator: *std.mem.Allocator,
     arena: std.heap.ArenaAllocator,
 
-    fn init(a: *std.mem.Allocator, size: usize) !huffmanEncoder {
-        var hu: huffmanEncoder = undefined;
+    // initalizes a new HuffmanEncoder instance.
+    // call deinit when done to free resources.
+    fn init(a: *std.mem.Allocator, size: usize) !HuffmanEncoder {
+        var hu: HuffmanEncoder = undefined;
         hu.arena = std.heap.ArenaAllocator.init(a);
         hu.allocator = &hu.arena.allocator;
         hu.bit_cache = try hu.allocator.alloc(i32, 17);
@@ -185,6 +187,10 @@ const huffmanEncoder = struct {
         hu.codes = CodeList.init(hu.allocator);
         try codes.ensureCapacity(size);
         return hu;
+    }
+
+    fn deinit(h: *HuffmanEncoder) void {
+        h.arena.deinit();
     }
 
     fn bitLength(h: []hcode, freq: []i32) isize {
