@@ -174,19 +174,17 @@ const huffmanEncoder = struct {
     lns: ?LiteralNodeList,
     lfs: ?LiteralNodeList,
     allocator: *std.mem.Allocator,
+    arena: std.heap.ArenaAllocator,
 
     fn init(a: *std.mem.Allocator, size: usize) !huffmanEncoder {
+        var hu: huffmanEncoder = undefined;
+        hu.arena = std.heap.ArenaAllocator.init(a);
+        hu.allocator = &hu.arena.allocator;
+        hu.bit_cache = try hu.allocator.alloc(i32, 17);
         const bit_cache: [17]i32 = undefined;
-        var codes = CodeList.init(a);
+        hu.codes = CodeList.init(hu.allocator);
         try codes.ensureCapacity(size);
-        return huffmanEncoder{
-            .codes = codes,
-            .freq_cache = null,
-            .bit_cache = bit_cache[0..],
-            .lns = null,
-            .lfs = null,
-            .allocator = a,
-        };
+        return hu;
     }
 
     fn bitLength(h: []hcode, freq: []i32) isize {
