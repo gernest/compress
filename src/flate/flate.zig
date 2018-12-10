@@ -171,7 +171,7 @@ pub const HuffmanEncoder = struct {
     }
 
     fn reverseBits(n: u16, bit_length: u16) u16 {
-        return math_bits.reverseU16(n << (16 - bit_length));
+        return math_bits.reverseU16(n << (15 - @intCast(u4, bit_length) + 1));
     }
 
     const LiteralNode = struct {
@@ -179,10 +179,10 @@ pub const HuffmanEncoder = struct {
         freq: u16,
     };
 
-    fn generateFixedOffsetEncoding(h: []hcode) void {
+    fn generateFixedOffsetEncoding(h: []Hcode) void {
         for (h) |_, idx| {
-            h[idx] = hcode{
-                .code = reverseBits(u16(idx), 5),
+            h[idx] = Hcode{
+                .code = reverseBits(@intCast(u16, idx), 5),
                 .length = 5,
             };
         }
@@ -216,7 +216,7 @@ pub const HuffmanEncoder = struct {
     }
 
     const fixed_offset_encoding = blk: {
-        var h: [30]hcode = undefined;
+        var h: [30]Hcode = undefined;
         generateFixedOffsetEncoding(h[0..]);
         break :blk h[0..];
     };
@@ -287,5 +287,5 @@ test "sort LiteralNodeList" {
         }
     }
 
-    // std.debug.warn("{}\n", HuffmanEncoder.fixed_literal_encoding().len);
+    std.debug.warn("{}\n", HuffmanEncoder.fixed_offset_encoding.len);
 }
