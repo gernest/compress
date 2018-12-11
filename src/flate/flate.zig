@@ -338,6 +338,19 @@ pub const HuffmanEncoder = struct {
                 var e = &levels[ls.level - 1];
                 e.needed = 2;
             }
+            ls.needed -= 1;
+            if (ls.needed == 0) {
+                // We've done everything we need to do for this level.
+                // Continue calculating one level up. Fill in nextPairFreq
+                // of that level with the sum of the two nodes we've just calculated on
+                // this level.
+                if (ls.level == max_bits_value) {
+                    // All done!
+                    break;
+                }
+                var e = &levels[ls.level + 1];
+                l.next_pair_freq = prev_freq + ls.last_freq;
+            }
         }
     }
 };
