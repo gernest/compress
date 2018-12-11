@@ -4,7 +4,7 @@ const math_bits = @import("../bits/index.zig");
 pub const HuffmanEncoder = struct {
     condes: CodeList,
     freq_cache: ?LiteralNodeList,
-    bit_cache: []i32,
+    bit_count: [17]i32,
     lns: ?LiteralNodeList,
     lfs: ?LiteralNodeList,
     allocator: *std.mem.Allocator,
@@ -227,8 +227,6 @@ pub const HuffmanEncoder = struct {
         var hu: HuffmanEncoder = undefined;
         hu.arena = std.heap.ArenaAllocator.init(a);
         hu.allocator = &hu.arena.allocator;
-        hu.bit_cache = try hu.allocator.alloc(i32, 17);
-        const bit_cache: [17]i32 = undefined;
         hu.codes = CodeList.init(hu.allocator);
         try codes.ensureCapacity(size);
         return hu;
@@ -263,9 +261,84 @@ pub const HuffmanEncoder = struct {
     //             Must be less than 16.
     // return      An integer array in which array[i] indicates the number of literals
     //             that should be encoded in i bits.
-    fn bitCounts(h: *HuffmanEncoder, list: LiteralNodeList, max_bits: i32) []i32 {
-        std.debug.assert(max_bits < max_bits_limit);
-        const n = list.len;
+    fn bitCounts(h: *HuffmanEncoder, list: *LiteralNodeList, max_bits: i32) []i32 {
+        var max_bits_value = max_bits;
+        std.debug.assert(max_bits_value < max_bits_limit);
+        const n = @intCast(i32, list.len);
+        try list.append(maxNode());
+        // The tree can't have greater depth than n - 1, no matter what. This
+        // saves a little bit of work in some small cases
+        if (max_bits_value > n - 1) {
+            max_bits_value = n - 1;
+        }
+
+        var list_items = list.toSlice();
+
+        // Create information about each of the levels.
+        // A bogus "Level 0" whose sole purpose is so that
+        // level1.prev.needed==0.  This makes level1.nextPairFreq
+        // be a legitimate value that never gets chosen.
+        var levels: [max_bits_limit]LevelInfo = undefined;
+
+        // leafCounts[i] counts the number of literals at the left
+        // of ancestors of the rightmost node at level i.
+        // leafCounts[i][j] is the number of literals at the left
+        // of the level j ancestor.
+        var leaf_counts: [max_bits_limit][max_bits_limit]i32 = undefined;
+        const max_i32 = @intCast(i32, std.math.maxInt(i32));
+        var level: i32 = 1;
+        while (level <= max_bits_value) : (level += 1) {
+            levels[level] = LevelInfo{
+                .level = level,
+                .last_freq = list_items[1].freq,
+                .next_char_freq = list_items[2].freq,
+                .next_pair_freq = list_items[0].freq + list_items[1].freq,
+                .needed = 0,
+            };
+            leaf_counts[level][level] = 2;
+            if (level == 1) {
+                var ls = &levels[level];
+                ls.nextPairFreq = max_i32;
+            }
+        }
+        // We need a total of 2*n - 2 items at top level and have already generated 2.
+        var ls = &levels[max_bits_value];
+        ls.needed = (2 * n) - 4;
+
+        level = max_bits_value;
+        while (true) {
+            var ls = &levels[level];
+            if (ls.next_pair_freq == max_u16 and ls.next_char_freq == max_i32) {
+
+                // We've run out of both leafs and pairs.
+                // End all calculations for this level.
+                // To make sure we never come back to this level or any lower level,
+                // set nextPairFreq impossibly large.
+                ls.needed = 0;
+                var l = &levels[level + 1];
+                l.next_pair_freq = max_i32;
+                level += 1;
+                continue;
+            }
+            const prev_freq = ls.last_freq;
+            if (ls.next_char_freq < ls.next_pair_freq) {
+                // The next item on this row is a leaf node.
+                const v = leaf_counts[level][level] + 1;
+                ls.last_freq = ls.next_char_freq;
+                leaf_counts[level][level] = n;
+                ls.next_char_freq = list_items[@intCast(usize, v)].freq;
+            } else {
+
+                // The next item on this row is a pair from the previous row.
+                // nextPairFreq isn't valid until we generate two
+                // more values in the level below
+                ls.last_freq = ls.next_pair_freq;
+                // Take leaf counts from the lower level, except counts[level] remains the same.
+                std.mem.copy(i32, leaf_counts[level][0..level], leaf_counts[level - 1][0..level]);
+                var e = &levels[ls.level - 1];
+                e.needed = 2;
+            }
+        }
     }
 };
 
