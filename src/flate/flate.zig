@@ -171,7 +171,7 @@ pub const HuffmanEncoder = struct {
     }
 
     fn reverseBits(n: u16, bit_length: u16) u16 {
-        return math_bits.reverseU16(n << (15 - @intCast(u4, bit_length) + 1));
+        return math_bits.reverseU16(std.math.shl(u16, n, 16 - bit_length));
     }
 
     const LiteralNode = struct {
