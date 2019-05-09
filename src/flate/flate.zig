@@ -1,5 +1,6 @@
 const std = @import("std");
 const io = std.io;
+const math = std.math;
 
 // The largest offset code.
 const offset_code_count = 30;
@@ -120,3 +121,20 @@ fn HuffmanWriter(comptime Error: type) type {
         }
     };
 }
+
+const HCode = struct {
+    code: u16,
+    len: u16,
+};
+
+const LiteralNode = struct {
+    litaral: u16,
+    freq: i32,
+
+    fn max() LiteralNode {
+        return LiteralNode{
+            .literal = math.maxInt(u16),
+            .freq = math.maxInt(i32),
+        };
+    }
+};
