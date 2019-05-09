@@ -1,377 +1,105 @@
 const std = @import("std");
-const math_bits = @import("../bits/index.zig");
+const io = std.io;
 
-pub const HuffmanEncoder = struct {
-    condes: CodeList,
-    freq_cache: ?LiteralNodeList,
-    bit_count: [17]i32,
-    lns: ?LiteralNodeList,
-    lfs: ?LiteralNodeList,
-    allocator: *std.mem.Allocator,
-    arena: std.heap.ArenaAllocator,
+// The largest offset code.
+const offset_code_count = 30;
 
-    // 2 bits:   type   0 = literal  1=EOF  2=Match   3=Unused
-    // 8 bits:   xlength = length - MIN_MATCH_LENGTH
-    // 22 bits   xoffset = offset - MIN_OFFSET_SIZE, or literal
-    const length_shift = 22;
-    const offset_mask = 1 << length_shift - 1;
-    const type_mask = 3 << 30;
-    const literal_type = 0 << 30;
-    const match_type = 1 << 30;
+// The special code used to mark the end of a block.
+const end_block_marker = 256;
 
-    const max_bits_limit: i32 = 16;
+// The first length code.
+const length_codes_start = 257;
 
-    const max_code_len: usize = 16; // max length of Huffman code
-    // The next three numbers come from the RFC section 3.2.7, with the
-    // additional proviso in section 3.2.5 which implies that distance codes
-    // 30 and 31 should never occur in compressed data.
-    const max_num_lit: usize = 286;
-    const max_num_dist: usize = 30;
-    const num_codes: usize = 19; // number of codes in Huffman meta-code
+// The number of codegen codes.
+const codegen_code_count = 19;
+const bad_code = 255;
 
-    // The length code for length X (MIN_MATCH_LENGTH <= X <= MAX_MATCH_LENGTH)
-    // is lengthCodes[length - MIN_MATCH_LENGTH]
-    const length_codes = []u32{
-        0, 1, 2, 3, 4, 5, 6, 7, 8, 8,
-        9, 9, 10, 10, 11, 11, 12, 12, 12, 12,
-        13, 13, 13, 13, 14, 14, 14, 14, 15, 15,
-        15, 15, 16, 16, 16, 16, 16, 16, 16, 16,
-        17, 17, 17, 17, 17, 17, 17, 17, 18, 18,
-        18, 18, 18, 18, 18, 18, 19, 19, 19, 19,
-        19, 19, 19, 19, 20, 20, 20, 20, 20, 20,
-        20, 20, 20, 20, 20, 20, 20, 20, 20, 20,
-        21, 21, 21, 21, 21, 21, 21, 21, 21, 21,
-        21, 21, 21, 21, 21, 21, 22, 22, 22, 22,
-        22, 22, 22, 22, 22, 22, 22, 22, 22, 22,
-        22, 22, 23, 23, 23, 23, 23, 23, 23, 23,
-        23, 23, 23, 23, 23, 23, 23, 23, 24, 24,
-        24, 24, 24, 24, 24, 24, 24, 24, 24, 24,
-        24, 24, 24, 24, 24, 24, 24, 24, 24, 24,
-        24, 24, 24, 24, 24, 24, 24, 24, 24, 24,
-        25, 25, 25, 25, 25, 25, 25, 25, 25, 25,
-        25, 25, 25, 25, 25, 25, 25, 25, 25, 25,
-        25, 25, 25, 25, 25, 25, 25, 25, 25, 25,
-        25, 25, 26, 26, 26, 26, 26, 26, 26, 26,
-        26, 26, 26, 26, 26, 26, 26, 26, 26, 26,
-        26, 26, 26, 26, 26, 26, 26, 26, 26, 26,
-        26, 26, 26, 26, 27, 27, 27, 27, 27, 27,
-        27, 27, 27, 27, 27, 27, 27, 27, 27, 27,
-        27, 27, 27, 27, 27, 27, 27, 27, 27, 27,
-        27, 27, 27, 27, 27, 28,
-    };
+// bufferFlushSize indicates the buffer size
+// after which bytes are flushed to the writer.
+// Should preferably be a multiple of 6, since
+// we accumulate 6 bytes between writes to the buffer.
+const buffer_flush_size = 240;
 
-    const offset_codes = []u32{
-        0, 1, 2, 3, 4, 4, 5, 5, 6, 6, 6, 6, 7, 7, 7, 7,
-        8, 8, 8, 8, 8, 8, 8, 8, 9, 9, 9, 9, 9, 9, 9, 9,
-        10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10,
-        11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11,
-        12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12,
-        12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12,
-        13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13,
-        13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13,
-        14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14,
-        14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14,
-        14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14,
-        14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14,
-        15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15,
-        15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15,
-        15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15,
-        15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15,
-    };
+// bufferSize is the actual output byte buffer size.
+// It must have additional headroom for a flush
+// which can contain up to 8 bytes.
+const buffer_size = bufferFlushSize + 8;
 
-    fn lengthCode(v: u32) u32 {
-        return length_codes[@intCast(usize, v)];
-    }
+// The next three numbers come from the RFC section 3.2.7, with the
+// additional proviso in section 3.2.5 which implies that distance codes
+// 30 and 31 should never occur in compressed data.
+const max_numLit = 286;
 
-    fn offsetCode(off: u32) u32 {
-        if (@intCast(usize, off) < offset_codes.len) {
-            return offset_codes[@intCast(usize, off)];
-        }
-        if (@intCast(usize, off >> 7) < offset_codes.len) {
-            return offset_codes[@intCast(usize, off >> 7)];
-        }
-        return offset_codes[@intCast(usize, off >> 14)] + 28;
-    }
+fn HuffmanWriter(comptime Error: type) type {
+    return struct {
+        const Self = @This();
+        const Stream = io.OutStream(Error);
+        stream: *Stream,
+        bits: u64,
+        nbits: usize,
+        bytes: [buffer_size]u8,
+        code_gen_freq: [codegen_code_count]usize,
+        nbytes: usize,
+        literal_freq: [max_numLit]usize,
+        offset_freq: [offset_code_count]usize,
+        code_gen: [max_numLit + offset_code_count]usize,
 
-    const Token = struct {
-        value: u32,
-        fn literalToken(value: u32) token {
-            return Token{ .value = literal_type + value };
-        }
-        fn matchToken(xlength: u32, xoffset: u32) token {
-            return Token{ .value = match_type + xlength << length_shift + xoffset };
-        }
-
-        fn literal(self: Token) u32 {
-            return self.value - literal_type;
-        }
-
-        fn offset(self: Token) u32 {
-            return self.value & offset_mask;
-        }
-
-        fn length(self: Token) u32 {
-            return (self.value - match_type) >> length_shift;
-        }
-    };
-
-    /// A levelInfo describes the state of the constructed tree for a given depth.
-    const LevelInfo = struct {
-        /// Our level.  for better printing
-        level: i32,
-
-        /// The frequency of the last node at this level
-        last_freq: i32,
-
-        /// The frequency of the next character to add to this level
-        next_char_freq: i32,
-
-        /// The frequency of the next pair (from level below) to add to this level.
-        /// Only valid if the "needed" value of the next lower level is 0.
-        next_pair_freq: i32,
-
-        /// The number of chains remaining to generate for this level before moving
-        /// up to the next level
-        needed: i32,
-    };
-
-    const Hcode = struct {
-        code: u16,
-        length: u16,
-    };
-
-    fn generateFixedLiteralEncoding(h: []Hcode) void {
-        std.debug.assert(h.len >= max_num_lit);
-        var ch: u16 = 0;
-        while (ch < max_num_lit) : (ch += 1) {
-            var bits: u16 = 0;
-            var size: u16 = 0;
-            if (ch < 144) {
-                // size 8, 000110000  .. 10111111
-                bits = ch + 48;
-                size = 8;
-            } else if (ch < 256) {
-                // size 9, 110010000 .. 111111111
-                bits = ch + 400 - 144;
-                size = 9;
-            } else if (ch < 280) {
-                // size 7, 0000000 .. 0010111
-                bits = ch - 256;
-                size = 7;
-            } else {
-                // size 8, 11000000 .. 11000111
-                bits = ch + 192 - 280;
-                size = 8;
-            }
-            h[ch] = Hcode{
-                .code = reverseBits(bits, size),
-                .length = size,
-            };
-        }
-    }
-
-    fn reverseBits(n: u16, bit_length: u16) u16 {
-        return math_bits.reverseU16(std.math.shl(u16, n, 16 - bit_length));
-    }
-
-    const LiteralNode = struct {
-        literal: u16,
-        freq: u16,
-    };
-
-    fn generateFixedOffsetEncoding(h: []Hcode) void {
-        for (h) |_, idx| {
-            h[idx] = Hcode{
-                .code = reverseBits(@intCast(u16, idx), 5),
-                .length = 5,
-            };
-        }
-    }
-
-    const max_u16 = std.math.maxInt(u16);
-
-    fn maxNode() LiteralNode {
-        return LiteralNode{
-            .literal = u16(max_u16),
-            .freq = u16(max_u16),
+        // The number of extra bits needed by length code X - LENGTH_CODES_START.
+        const length_extra_bits = []i8{
+            0, 0, 0,
+            0, 0, 0,
+            0, 0, 1,
+            1, 1, 1,
+            2, 2, 2,
+            2, 3, 3,
+            3, 3, 4,
+            4, 4, 4,
+            5, 5, 5,
+            5, 0,
         };
-    }
 
-    const CodeList = std.ArrayList(Hcode);
+        // The length indicated by length code X - LENGTH_CODES_START.
+        const length_base = []u32{
+            0,  1,  2,  3,   4,   5,   6,   7,   8,   10,
+            12, 14, 16, 20,  24,  28,  32,  40,  48,  56,
+            64, 80, 96, 112, 128, 160, 192, 224, 255,
+        };
 
-    const LiteralNodeList = std.ArrayList(LiteralNode);
+        // offset code word extra bits.
+        const offset_extra_bits = []i8{
+            0, 0, 0,  0,  1,  1,  2,  2,  3,  3,
+            4, 4, 5,  5,  6,  6,  7,  7,  8,  8,
+            9, 9, 10, 10, 11, 11, 12, 12, 13, 13,
+        };
 
-    fn sortLiteralNodeList(list: []LiteralNode) void {
-        std.sort.insertionSort(LiteralNode, list, lessLiteralNodeListFn);
-    }
+        const offsetBase = []uint32{
+            0x000000, 0x000001, 0x000002, 0x000003, 0x000004,
+            0x000006, 0x000008, 0x00000c, 0x000010, 0x000018,
+            0x000020, 0x000030, 0x000040, 0x000060, 0x000080,
+            0x0000c0, 0x000100, 0x000180, 0x000200, 0x000300,
+            0x000400, 0x000600, 0x000800, 0x000c00, 0x001000,
+            0x001800, 0x002000, 0x003000, 0x004000, 0x006000,
+        };
 
-    fn lessLiteralNodeListFn(x: LiteralNode, y: LiteralNode) bool {
-        return x.literal < y.literal;
-    }
+        const codegen_order = []u32{
+            16, 17, 18, 0,  8,
+            7,  9,  6,  10, 5,
+            11, 4,  12, 3,  13,
+            2,  14, 1,  15,
+        };
 
-    fn fixed_literal_encoding() []Hcode {
-        var h: [max_num_lit]Hcode = undefined;
-        generateFixedLiteralEncoding(h[0..]);
-        return h[0..];
-    }
-
-    const fixed_offset_encoding = blk: {
-        var h: [30]Hcode = undefined;
-        generateFixedOffsetEncoding(h[0..]);
-        break :blk h[0..];
-    };
-
-    // initalizes a new HuffmanEncoder instance.
-    // call deinit when done to free resources.
-    fn init(a: *std.mem.Allocator, size: usize) !HuffmanEncoder {
-        var hu: HuffmanEncoder = undefined;
-        hu.arena = std.heap.ArenaAllocator.init(a);
-        hu.allocator = &hu.arena.allocator;
-        hu.codes = CodeList.init(hu.allocator);
-        try codes.ensureCapacity(size);
-        return hu;
-    }
-
-    fn deinit(h: *HuffmanEncoder) void {
-        h.arena.deinit();
-    }
-
-    fn bitLength(h: []hcode, freq: []i32) isize {
-        var total: isize = 0;
-        for (freq) |f, i| {
-            if (f != 0) {
-                const x = @intCast(isize, h[i].length);
-                const y = @intCast(isize, f);
-                total += (y * x);
-            }
-        }
-        return total;
-    }
-
-    // Return the number of literals assigned to each bit size in the Huffman encoding
-    //
-    // This method is only called when list.length >= 3
-    // The cases of 0, 1, and 2 literals are handled by special case code.
-    //
-    // list  An array of the literals with non-zero frequencies
-    //             and their associated frequencies. The array is in order of increasing
-    //             frequency, and has as its last element a special element with frequency
-    //             MaxInt32
-    // max_bits     The maximum number of bits that should be used to encode any literal.
-    //             Must be less than 16.
-    // return      An integer array in which array[i] indicates the number of literals
-    //             that should be encoded in i bits.
-    fn bitCounts(h: *HuffmanEncoder, list: *LiteralNodeList, max_bits: i32) []i32 {
-        var max_bits_value = max_bits;
-        std.debug.assert(max_bits_value < max_bits_limit);
-        const n = @intCast(i32, list.len);
-        try list.append(maxNode());
-        // The tree can't have greater depth than n - 1, no matter what. This
-        // saves a little bit of work in some small cases
-        if (max_bits_value > n - 1) {
-            max_bits_value = n - 1;
-        }
-
-        var list_items = list.toSlice();
-
-        // Create information about each of the levels.
-        // A bogus "Level 0" whose sole purpose is so that
-        // level1.prev.needed==0.  This makes level1.nextPairFreq
-        // be a legitimate value that never gets chosen.
-        var levels: [max_bits_limit]LevelInfo = undefined;
-
-        // leafCounts[i] counts the number of literals at the left
-        // of ancestors of the rightmost node at level i.
-        // leafCounts[i][j] is the number of literals at the left
-        // of the level j ancestor.
-        var leaf_counts: [max_bits_limit][max_bits_limit]i32 = undefined;
-        const max_i32 = @intCast(i32, std.math.maxInt(i32));
-        var level: i32 = 1;
-        while (level <= max_bits_value) : (level += 1) {
-            levels[level] = LevelInfo{
-                .level = level,
-                .last_freq = list_items[1].freq,
-                .next_char_freq = list_items[2].freq,
-                .next_pair_freq = list_items[0].freq + list_items[1].freq,
-                .needed = 0,
+        fn init(out_stream: *Stream) Self {
+            return Self{
+                .stream = out_stream,
+                .bits = 0,
+                .nbits = 0,
+                .bytes = []const u8{0} ** buffer_size,
+                .code_gen_freq = []usize{0} ** codegen_code_count,
+                .nbytes = 0,
+                .literal_freq = []usize{0} ** max_numLit,
+                .offset_freq = []usize{0} ** offset_code_count,
+                .code_gen = []usize{0} ** (max_numLit + offset_code_count),
             };
-            leaf_counts[level][level] = 2;
-            if (level == 1) {
-                var ls = &levels[level];
-                ls.nextPairFreq = max_i32;
-            }
         }
-        // We need a total of 2*n - 2 items at top level and have already generated 2.
-        var ls = &levels[max_bits_value];
-        ls.needed = (2 * n) - 4;
-
-        level = max_bits_value;
-        while (true) {
-            var ls = &levels[level];
-            if (ls.next_pair_freq == max_u16 and ls.next_char_freq == max_i32) {
-
-                // We've run out of both leafs and pairs.
-                // End all calculations for this level.
-                // To make sure we never come back to this level or any lower level,
-                // set nextPairFreq impossibly large.
-                ls.needed = 0;
-                var l = &levels[level + 1];
-                l.next_pair_freq = max_i32;
-                level += 1;
-                continue;
-            }
-            const prev_freq = ls.last_freq;
-            if (ls.next_char_freq < ls.next_pair_freq) {
-                // The next item on this row is a leaf node.
-                const v = leaf_counts[level][level] + 1;
-                ls.last_freq = ls.next_char_freq;
-                leaf_counts[level][level] = n;
-                ls.next_char_freq = list_items[@intCast(usize, v)].freq;
-            } else {
-
-                // The next item on this row is a pair from the previous row.
-                // nextPairFreq isn't valid until we generate two
-                // more values in the level below
-                ls.last_freq = ls.next_pair_freq;
-                // Take leaf counts from the lower level, except counts[level] remains the same.
-                std.mem.copy(i32, leaf_counts[level][0..level], leaf_counts[level - 1][0..level]);
-                var e = &levels[ls.level - 1];
-                e.needed = 2;
-            }
-            ls.needed -= 1;
-            if (ls.needed == 0) {
-                // We've done everything we need to do for this level.
-                // Continue calculating one level up. Fill in nextPairFreq
-                // of that level with the sum of the two nodes we've just calculated on
-                // this level.
-                if (ls.level == max_bits_value) {
-                    // All done!
-                    break;
-                }
-                var e = &levels[ls.level + 1];
-                l.next_pair_freq = prev_freq + ls.last_freq;
-            }
-        }
-    }
-};
-
-test "sort LiteralNodeList" {
-    var ls = &HuffmanEncoder.LiteralNodeList.init(std.debug.global_allocator);
-    defer ls.deinit();
-    var n: usize = 5;
-    while (n > 0) : (n -= 1) {
-        try ls.append(HuffmanEncoder.LiteralNode{
-            .literal = @intCast(u16, n),
-            .freq = 0,
-        });
-    }
-
-    HuffmanEncoder.sortLiteralNodeList(ls.toSlice());
-    for (ls.toSlice()) |value, idx| {
-        if (idx + 1 != @intCast(usize, value.literal)) {
-            std.debug.warn("expected {} got {}\n", idx + 1, value.literal);
-        }
-    }
-
-    std.debug.warn("{}\n", HuffmanEncoder.fixed_offset_encoding.len);
+    };
 }
