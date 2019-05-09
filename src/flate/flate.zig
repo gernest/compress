@@ -101,5 +101,22 @@ fn HuffmanWriter(comptime Error: type) type {
                 .code_gen = []usize{0} ** (max_numLit + offset_code_count),
             };
         }
+
+        pub fn flush(self: *Self) !void {
+            const n = self.nbytes;
+            while (self.nbits != 0) {
+                self.bytes[n] = @intCast(u8, self.bits);
+                self.bits >>= 8;
+                if (self.nbits > 8) {
+                    self.nbits -= 8;
+                } else {
+                    self.nbits = 0;
+                }
+                n += 1;
+            }
+            self.bits = 0;
+            try self.stream.append(self.bytes[0..n]);
+            self.nbytes = 0;
+        }
     };
 }
